@@ -313,6 +313,13 @@ class Promobar extends Module
     }
 
     /** Build the configuration form */
+    /**
+     * For my use case, the Message field was a little restricting.
+     * Minor update to make it more lax so i can use other html features
+     * Changed the input type from textarea to a tinymce to allow
+     * for better message formatting
+     * 
+     */
     protected function renderForm()
     {
         $defaultLang = (int) Configuration::get('PS_LANG_DEFAULT');
@@ -383,9 +390,11 @@ class Promobar extends Module
                         'label' => $this->l('Message'),
                         'name' => self::CFG_MESSAGE,
                         'lang' => true,
+                        'cols' => 40,
                         'rows' => 4,
-                        'autoload_rte' => false,
-                        'desc' => $this->l('Tip: use **bold** for emphasis and [text](https://your-url) to insert a link.'),
+                        'class' => 'rte',
+                        'autoload_rte' => true,
+                        'desc' => $this->l('Keep it simple. Avoid long messages and unnecessary HTML.'),
                     ],
                     [
                         'type' => 'select',
