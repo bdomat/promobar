@@ -4,7 +4,7 @@
  *
  * @author BeDOM - Solutions Web
  * @copyright 2025 BeDOM - Solutions Web
- * @license MIT
+ * @license GPL-3.0-or-later
  */
 if (!defined('_PS_VERSION_')) {
     exit;
@@ -39,11 +39,17 @@ class Promobar extends Module
     public const AUTHOR_FACEBOOK = 'https://www.facebook.com/agencebedom';
     public const AUTHOR_INSTAGRAM = 'https://www.instagram.com/bedom_web/';
 
+    // BD Central (BeDOM central panel) — transparent telemetry for module inventory / updates
+    public const BDC_ENDPOINT = 'https://bedom.fr/module/bdcentral/ping';
+    public const BDC_CFG_INSTANCE_ID = 'PROMOBAR_BDC_INSTANCE_ID'; // per shop
+    public const BDC_CFG_LAST_PING = 'PROMOBAR_BDC_LAST_PING';     // unix timestamp (int)
+    public const BDC_CFG_LAST_UPDATE = 'PROMOBAR_BDC_LAST_UPDATE'; // JSON string (optional)
+
     public function __construct()
     {
         $this->name = 'promobar';
         $this->tab = 'front_office_features';
-        $this->version = '1.0.0';
+        $this->version = '1.0.3';
         $this->author = 'BeDOM - Solutions Web';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -99,9 +105,14 @@ class Promobar extends Module
         // Hooks
         $ok = $this->registerHook('displayTop')
             && $this->registerHook('displayAfterBodyOpeningTag')
-            && $this->registerHook('header');
+            && $this->registerHook('header')
+            && $this->registerHook('displayBackOfficeHeader');
 
         $this->maybeMigrateOldKeys($idShop);
+
+        // BD Central ping (best-effort, never blocks installation)
+        $this->bdcentralPing($idShop, true);
+
         return $ok;
     }
 
@@ -158,6 +169,9 @@ class Promobar extends Module
             self::CFG_CTA_BG_COLOR,
             self::CFG_CTA_TEXT_COLOR,
             self::CFG_CTA_BORDER,
+            self::BDC_CFG_INSTANCE_ID,
+            self::BDC_CFG_LAST_PING,
+            self::BDC_CFG_LAST_UPDATE,
         ];
         foreach ($keys as $k) {
             Configuration::deleteByName($k);
@@ -172,6 +186,8 @@ class Promobar extends Module
         if (Tools::isSubmit('submitPromobar')) {
             $this->postProcess();
             $out .= $this->displayConfirmation($this->l('Configuration saved.'));
+            // BD Central ping (best-effort)
+            $this->bdcentralPing((int) $this->context->shop->id, true);
         }
         $out .= $this->renderForm();
         $out .= $this->renderAuthorCard();
@@ -619,7 +635,28 @@ class Promobar extends Module
         if ($pos !== 'top' && $pos !== 'afterbody') {
             $pos = 'afterbody';
         }
-        return $where === $pos;
+
+        // Normal case: render only on the configured position
+        if ($where === $pos) {
+            return true;
+        }
+
+        // Fallback: if the preferred hook is not available/registered in this shop/theme,
+        // render on the current hook to avoid "invisible" configuration surprises.
+        // Example: module attached only to displayTop but configured to "after body opening".
+        $preferredHookName = ($pos === 'top') ? 'displayTop' : 'displayAfterBodyOpeningTag';
+        if (!method_exists($this, 'isRegisteredInHook')) {
+            return false;
+        }
+
+        // PS validator expects ModuleCore::isRegisteredInHook() to be called with 1 parameter.
+        // (Some PS versions accept an optional shop id, others don't.)
+        $preferredIsRegistered = (bool) $this->isRegisteredInHook($preferredHookName);
+        if (!$preferredIsRegistered) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -760,5 +797,149 @@ class Promobar extends Module
     public function hookDisplayAfterBodyOpeningTag($params)
     {
         return $this->shouldRenderInHook('afterbody') ? $this->renderBar() : '';
+    }
+
+    /**
+     * Back office: opportunistic ping to BD Central (rate-limited).
+     * No UI changes, no blocking network calls.
+     */
+    public function hookDisplayBackOfficeHeader($params)
+    {
+        $this->bdcentralPing((int) $this->context->shop->id, false);
+        return '';
+    }
+
+    private function bdcentralPing($idShop, $force = false)
+    {
+        // Allow advanced opt-out via defines.php:
+        // define('PROMOBAR_BDCENTRAL_DISABLED', true);
+        if (defined('PROMOBAR_BDCENTRAL_DISABLED') && PROMOBAR_BDCENTRAL_DISABLED) {
+            return;
+        }
+
+        $idShop = (int) $idShop;
+        if ($idShop <= 0) {
+            return;
+        }
+
+        // Rate-limit (1 ping / 24h) unless forced
+        $last = (int) Configuration::get(self::BDC_CFG_LAST_PING, null, null, $idShop);
+        if (!$force && $last > 0 && (time() - $last) < 86400) {
+            return;
+        }
+
+        // Stable instance id per shop
+        $instanceId = (string) Configuration::get(self::BDC_CFG_INSTANCE_ID, null, null, $idShop);
+        if ($instanceId === '') {
+            $instanceId = $this->bdcentralGenerateInstanceId();
+            Configuration::updateValue(self::BDC_CFG_INSTANCE_ID, $instanceId, false, null, $idShop);
+        }
+
+        $baseUrl = '';
+        $domain = '';
+        try {
+            $baseUrl = (string) $this->context->shop->getBaseURL(true);
+            $domain = (string) ($this->context->shop->domain ?? '');
+        } catch (\Exception $e) {
+            // ignore
+        }
+
+        if ($baseUrl === '') {
+            $baseUrl = (string) Tools::getShopDomainSsl(true);
+        }
+        if ($domain === '') {
+            $domain = (string) Tools::getShopDomain(false, false);
+        }
+
+        $payload = [
+            'module' => (string) $this->name,
+            'domain' => (string) $domain,
+            'base_url' => (string) $baseUrl,
+            'instance_id' => (string) $instanceId,
+            'ps_version' => (string) _PS_VERSION_,
+            'module_version' => (string) $this->version,
+            'license_key' => '', // free GPL module => no license key
+        ];
+
+        $resp = $this->bdcentralPostJson(self::BDC_ENDPOINT, $payload);
+        Configuration::updateValue(self::BDC_CFG_LAST_PING, (int) time(), false, null, $idShop);
+
+        if (is_array($resp) && isset($resp['update'])) {
+            // store response for potential later use (even if unused)
+            $safe = [
+                'checked_at' => date('c'),
+                'update' => $resp['update'],
+            ];
+            Configuration::updateValue(self::BDC_CFG_LAST_UPDATE, json_encode($safe), false, null, $idShop);
+        }
+    }
+
+    private function bdcentralGenerateInstanceId()
+    {
+        // Prefer cryptographically secure random
+        if (function_exists('random_bytes')) {
+            try {
+                return bin2hex(random_bytes(16));
+            } catch (\Exception $e) {
+                // ignore
+            }
+        }
+
+        // Fallback
+        return Tools::passwdGen(32);
+    }
+
+    private function bdcentralPostJson($url, array $payload)
+    {
+        $json = json_encode($payload);
+        if ($json === false) {
+            return null;
+        }
+
+        // Very short timeouts to keep this transparent
+        $timeout = 2;
+
+        // cURL first
+        if (function_exists('curl_init')) {
+            $ch = curl_init((string) $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json; charset=utf-8',
+                'Accept: application/json',
+            ]);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+            curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+
+            $out = curl_exec($ch);
+            curl_close($ch);
+
+            if (is_string($out) && $out !== '') {
+                $data = json_decode($out, true);
+                return is_array($data) ? $data : null;
+            }
+            return null;
+        }
+
+        // Fallback: stream context
+        $opts = [
+            'http' => [
+                'method' => 'POST',
+                'header' => "Content-Type: application/json; charset=utf-8\r\nAccept: application/json\r\n",
+                'content' => $json,
+                'timeout' => $timeout,
+            ],
+        ];
+        $ctx = stream_context_create($opts);
+
+        $out = @Tools::file_get_contents((string) $url, false, $ctx);
+        if (is_string($out) && $out !== '') {
+            $data = json_decode($out, true);
+            return is_array($data) ? $data : null;
+        }
+        return null;
     }
 }

@@ -211,3 +211,7 @@ La roadmap inclut :
 ---
 
 > 🖤 _Created with passion by [BeDOM – Solutions Web](https://bedom.fr/). Built for merchants who want performance and impact._
+
+
+## BD Central compatibility
+This module sends a lightweight inventory ping (module name, versions, domain/base URL, instance id) to BeDOM BD Central at https://bedom.fr/module/bdcentral/ping (rate-limited).
