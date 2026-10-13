@@ -10,7 +10,7 @@
       var d = new Date();
       d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
       document.cookie =
-        name + "=" + value + ";expires=" + d.toUTCString() + ";path=/";
+        name + "=" + value + ";expires=" + d.toUTCString() + ";path=/;SameSite=Lax" + (location.protocol === "https:" ? ";Secure" : "");
     } catch (e) {}
   }
 
@@ -18,18 +18,12 @@
     return (n < 10 ? "0" : "") + n;
   }
 
-  function decodeEntities(str) {
-    var txt = document.createElement("textarea");
-    txt.innerHTML = str;
-    return txt.value;
-  }
-
   function hydrateMessage(root) {
     var marquee = root.querySelector(".promobar__marquee[data-html]");
     if (!marquee) return;
     var htmlEscaped = marquee.getAttribute("data-html");
     if (!htmlEscaped) return;
-    marquee.innerHTML = decodeEntities(htmlEscaped);
+    marquee.innerHTML = htmlEscaped;
     marquee.removeAttribute("data-html");
   }
 
@@ -72,8 +66,8 @@
       if (sEl) sEl.textContent = pad2(sec);
     }
 
-    tick();
     var timer = setInterval(tick, 1000);
+    tick();
   }
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -84,7 +78,7 @@
     var cookieDays = parseInt(bar.getAttribute("data-cookie-days") || "30", 10);
     if (isNaN(cookieDays) || cookieDays <= 0) cookieDays = 30;
 
-    if (document.cookie.indexOf(cookieName + "=1") !== -1) {
+    if (bar.querySelector(".promobar__close") && document.cookie.split(";").some(function (cookie) { return cookie.trim() === cookieName + "=1"; })) {
       bar.style.display = "none";
       return;
     }

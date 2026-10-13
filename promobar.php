@@ -13,47 +13,47 @@ if (!defined('_PS_VERSION_')) {
 class Promobar extends Module
 {
     // Config keys
-    public const CFG_ENABLED = 'PROMOBAR_ENABLED';
-    public const CFG_DISMISSIBLE = 'PROMOBAR_DISMISSIBLE';
-    public const CFG_MESSAGE = 'PROMOBAR_MESSAGE';       // multilingual
-    public const CFG_BG_COLOR = 'PROMOBAR_BG_COLOR';
-    public const CFG_TEXT_COLOR = 'PROMOBAR_TEXT_COLOR';
-    public const CFG_START_DATE = 'PROMOBAR_START_DATE';
-    public const CFG_END_DATE = 'PROMOBAR_END_DATE';
-    public const CFG_COOKIE_DAYS = 'PROMOBAR_COOKIE_DAYS';   // int
-    public const CFG_FONT_FAMILY = 'PROMOBAR_FONT_FAMILY';   // whitelist
-    public const CFG_ANIMATION = 'PROMOBAR_ANIMATION';     // enum: none,scroll,pulse,blink
-    public const CFG_POSITION = 'PROMOBAR_POSITION';      // 'afterbody' | 'top'
-    public const CFG_COUNTDOWN = 'PROMOBAR_COUNTDOWN';     // bool
-    public const CFG_CTA_ENABLED = 'PROMOBAR_CTA_ENABLED';
-    public const CFG_CTA_TEXT = 'PROMOBAR_CTA_TEXT';      // multilingual
-    public const CFG_CTA_URL = 'PROMOBAR_CTA_URL';
-    public const CFG_CTA_BG_COLOR = 'PROMOBAR_CTA_BG_COLOR';
-    public const CFG_CTA_TEXT_COLOR = 'PROMOBAR_CTA_TEXT_COLOR';
-    public const CFG_CTA_BORDER = 'PROMOBAR_CTA_BORDER';
+    const CFG_ENABLED = 'PROMOBAR_ENABLED';
+    const CFG_DISMISSIBLE = 'PROMOBAR_DISMISSIBLE';
+    const CFG_MESSAGE = 'PROMOBAR_MESSAGE';       // multilingual
+    const CFG_BG_COLOR = 'PROMOBAR_BG_COLOR';
+    const CFG_TEXT_COLOR = 'PROMOBAR_TEXT_COLOR';
+    const CFG_START_DATE = 'PROMOBAR_START_DATE';
+    const CFG_END_DATE = 'PROMOBAR_END_DATE';
+    const CFG_COOKIE_DAYS = 'PROMOBAR_COOKIE_DAYS';   // int
+    const CFG_FONT_FAMILY = 'PROMOBAR_FONT_FAMILY';   // whitelist
+    const CFG_ANIMATION = 'PROMOBAR_ANIMATION';     // enum: none,scroll,pulse,blink
+    const CFG_POSITION = 'PROMOBAR_POSITION';      // 'afterbody' | 'top'
+    const CFG_COUNTDOWN = 'PROMOBAR_COUNTDOWN';     // bool
+    const CFG_CTA_ENABLED = 'PROMOBAR_CTA_ENABLED';
+    const CFG_CTA_TEXT = 'PROMOBAR_CTA_TEXT';      // multilingual
+    const CFG_CTA_URL = 'PROMOBAR_CTA_URL';
+    const CFG_CTA_BG_COLOR = 'PROMOBAR_CTA_BG_COLOR';
+    const CFG_CTA_TEXT_COLOR = 'PROMOBAR_CTA_TEXT_COLOR';
+    const CFG_CTA_BORDER = 'PROMOBAR_CTA_BORDER';
     // Author / branding
-    public const AUTHOR_NAME = 'BeDOM – Solutions Web';
-    public const AUTHOR_SITE = 'https://bedom.fr/';
-    public const AUTHOR_CONTACT = 'https://bedom.fr/support';
-    public const AUTHOR_LINKEDIN = 'https://www.linkedin.com/company/bedom-web';
-    public const AUTHOR_FACEBOOK = 'https://www.facebook.com/agencebedom';
-    public const AUTHOR_INSTAGRAM = 'https://www.instagram.com/bedom_web/';
+    const AUTHOR_NAME = 'BeDOM – Solutions Web';
+    const AUTHOR_SITE = 'https://bedom.fr/';
+    const AUTHOR_CONTACT = 'https://bedom.fr/support';
+    const AUTHOR_LINKEDIN = 'https://www.linkedin.com/company/bedom-web';
+    const AUTHOR_FACEBOOK = 'https://www.facebook.com/agencebedom';
+    const AUTHOR_INSTAGRAM = 'https://www.instagram.com/bedom_web/';
 
     // BD Central (BeDOM central panel) — transparent telemetry for module inventory / updates
-    public const BDC_ENDPOINT = 'https://bedom.fr/module/bdcentral/ping';
-    public const BDC_CFG_INSTANCE_ID = 'PROMOBAR_BDC_INSTANCE_ID'; // per shop
-    public const BDC_CFG_LAST_PING = 'PROMOBAR_BDC_LAST_PING';     // unix timestamp (int)
-    public const BDC_CFG_LAST_UPDATE = 'PROMOBAR_BDC_LAST_UPDATE'; // JSON string (optional)
+    const BDC_ENDPOINT = 'https://bedom.fr/module/bdcentral/ping';
+    const BDC_CFG_INSTANCE_ID = 'PROMOBAR_BDC_INSTANCE_ID'; // per shop
+    const BDC_CFG_LAST_PING = 'PROMOBAR_BDC_LAST_PING';     // unix timestamp (int)
+    const BDC_CFG_LAST_UPDATE = 'PROMOBAR_BDC_LAST_UPDATE'; // JSON string (optional)
 
     public function __construct()
     {
         $this->name = 'promobar';
         $this->tab = 'front_office_features';
-        $this->version = '1.0.3';
+        $this->version = '1.0.4';
         $this->author = 'BeDOM - Solutions Web';
         $this->need_instance = 0;
         $this->bootstrap = true;
-        $this->ps_versions_compliancy = ['min' => '1.7.0.0', 'max' => _PS_VERSION_];
+        $this->ps_versions_compliancy = ['min' => '1.7.0.0', 'max' => '9.2.99'];
 
         parent::__construct();
 
@@ -182,8 +182,17 @@ class Promobar extends Module
     /** BO: config page */
     public function getContent()
     {
+        if (!$this->canConfigure()) {
+            return $this->displayError($this->l('You do not have permission to configure this module.'));
+        }
+        if (Shop::getContext() !== Shop::CONTEXT_SHOP) {
+            return $this->displayWarning($this->l('Please select a single shop to configure this module.'));
+        }
         $out = '';
         if (Tools::isSubmit('submitPromobar')) {
+            if (!$this->validConfigurationRequest()) {
+                return $this->displayError($this->l('Invalid form token. Please reload this page.'));
+            }
             $this->postProcess();
             $out .= $this->displayConfirmation($this->l('Configuration saved.'));
             // BD Central ping (best-effort)
@@ -199,37 +208,37 @@ class Promobar extends Module
     {
         $idShop = (int) $this->context->shop->id;
 
-        $enabled = (int) Tools::getValue(self::CFG_ENABLED, 0);
-        $dismiss = (int) Tools::getValue(self::CFG_DISMISSIBLE, 0);
-        $bg = Tools::substr(trim((string) Tools::getValue(self::CFG_BG_COLOR, '#111111')), 0, 20);
-        $fg = Tools::substr(trim((string) Tools::getValue(self::CFG_TEXT_COLOR, '#ffffff')), 0, 20);
-        $start = Tools::substr(trim((string) Tools::getValue(self::CFG_START_DATE, '')), 0, 10);
-        $end = Tools::substr(trim((string) Tools::getValue(self::CFG_END_DATE, '')), 0, 10);
+        $enabled = (int) $this->inputValue(self::CFG_ENABLED, 0);
+        $dismiss = (int) $this->inputValue(self::CFG_DISMISSIBLE, 0);
+        $bg = Tools::substr(trim((string) $this->inputValue(self::CFG_BG_COLOR, '#111111')), 0, 20);
+        $fg = Tools::substr(trim((string) $this->inputValue(self::CFG_TEXT_COLOR, '#ffffff')), 0, 20);
+        $start = Tools::substr(trim((string) $this->inputValue(self::CFG_START_DATE, '')), 0, 10);
+        $end = Tools::substr(trim((string) $this->inputValue(self::CFG_END_DATE, '')), 0, 10);
 
-        $cookieDays = (int) Tools::getValue(self::CFG_COOKIE_DAYS, 30);
+        $cookieDays = (int) $this->inputValue(self::CFG_COOKIE_DAYS, 30);
         $allowedCookie = [1, 3, 7, 15, 30, 90, 365];
         if (!in_array($cookieDays, $allowedCookie, true)) {
             $cookieDays = 30;
         }
 
-        $fontFamily = (string) Tools::getValue(self::CFG_FONT_FAMILY, 'system-ui');
+        $fontFamily = (string) $this->inputValue(self::CFG_FONT_FAMILY, 'system-ui');
         $fontWhitelist = $this->getFontWhitelist();
         if (!isset($fontWhitelist[$fontFamily])) {
             $fontFamily = 'system-ui';
         }
 
-        $animation = (string) Tools::getValue(self::CFG_ANIMATION, 'none');
+        $animation = (string) $this->inputValue(self::CFG_ANIMATION, 'none');
         $allowedAnim = ['none', 'scroll', 'pulse', 'blink'];
         if (!in_array($animation, $allowedAnim, true)) {
             $animation = 'none';
         }
 
-        $position = (string) Tools::getValue(self::CFG_POSITION, 'afterbody');
+        $position = (string) $this->inputValue(self::CFG_POSITION, 'afterbody');
         if (!in_array($position, ['afterbody', 'top'], true)) {
             $position = 'afterbody';
         }
 
-        $countdown = (int) Tools::getValue(self::CFG_COUNTDOWN, 0);
+        $countdown = (int) $this->inputValue(self::CFG_COUNTDOWN, 0);
 
         // Dates
         $reDate = '/^\d{4}-\d{2}-\d{2}$/';
@@ -252,23 +261,23 @@ class Promobar extends Module
         // Multilingual message (plain text only)
         $messages = [];
         foreach (Language::getLanguages(false) as $lang) {
-            $val = (string) Tools::getValue(self::CFG_MESSAGE . '_' . $lang['id_lang'], '');
+            $val = (string) $this->inputValue(self::CFG_MESSAGE . '_' . $lang['id_lang'], '');
             $val = Tools::substr(trim($val), 0, 1000);
             $val = strip_tags($val);
             $messages[(int) $lang['id_lang']] = $val;
         }
 
         // CTA
-        $ctaEnabled = (int) Tools::getValue(self::CFG_CTA_ENABLED, 0);
+        $ctaEnabled = (int) $this->inputValue(self::CFG_CTA_ENABLED, 0);
         $ctaTexts = [];
         foreach (Language::getLanguages(false) as $lang) {
-            $t = (string) Tools::getValue(self::CFG_CTA_TEXT . '_' . $lang['id_lang'], '');
+            $t = (string) $this->inputValue(self::CFG_CTA_TEXT . '_' . $lang['id_lang'], '');
             $t = Tools::substr(trim($t), 0, 80);
-            $t = Tools::purifyHTML($t);
+            $t = strip_tags($t);
             $ctaTexts[(int) $lang['id_lang']] = $t;
         }
 
-        $ctaUrl = Tools::substr(trim((string) Tools::getValue(self::CFG_CTA_URL, '')), 0, 255);
+        $ctaUrl = Tools::substr(trim((string) $this->inputValue(self::CFG_CTA_URL, '')), 0, 255);
         if ($ctaUrl !== '' && !filter_var($ctaUrl, FILTER_VALIDATE_URL)) {
             $ctaUrl = '';
         }
@@ -276,9 +285,9 @@ class Promobar extends Module
             $ctaUrl = '';
         }
 
-        $ctaBg = Tools::substr(trim((string) Tools::getValue(self::CFG_CTA_BG_COLOR, 'transparent')), 0, 20);
-        $ctaText = Tools::substr(trim((string) Tools::getValue(self::CFG_CTA_TEXT_COLOR, '#ffffff')), 0, 20);
-        $ctaBd = Tools::substr(trim((string) Tools::getValue(self::CFG_CTA_BORDER, '#ffffff')), 0, 20);
+        $ctaBg = Tools::substr(trim((string) $this->inputValue(self::CFG_CTA_BG_COLOR, 'transparent')), 0, 20);
+        $ctaText = Tools::substr(trim((string) $this->inputValue(self::CFG_CTA_TEXT_COLOR, '#ffffff')), 0, 20);
+        $ctaBd = Tools::substr(trim((string) $this->inputValue(self::CFG_CTA_BORDER, '#ffffff')), 0, 20);
         if (!preg_match($reColor, $ctaBg)) {
             $ctaBg = 'transparent';
         }
@@ -517,7 +526,7 @@ class Promobar extends Module
         $helper->module = $this;
         $helper->name_controller = $this->name;
         $helper->token = Tools::getAdminTokenLite('AdminModules');
-        $helper->currentIndex = AdminController::$currentIndex . '&configure=' . $this->name;
+        $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false) . '&configure=' . $this->name;
         $helper->default_form_language = $defaultLang;
         $helper->allow_employee_form_lang = (int) Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG');
         $helper->title = $this->displayName;
@@ -535,7 +544,7 @@ class Promobar extends Module
             'id_language' => (int) $this->context->language->id,
         ];
 
-        return $helper->generateForm([$fieldsForm]);
+        return $this->addFormToken($helper, [$fieldsForm]);
     }
     /** Render the author's badge/card with logo and social links */
     protected function renderAuthorCard()
@@ -668,37 +677,49 @@ class Promobar extends Module
      */
     private function renderMiniMarkup($text)
     {
-        // 1) escape everything
-        $safe = htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
+        // Parse once from plain text. Never parse generated HTML or decode entities twice.
+        $parts = preg_split('~(\[[^\]\r\n]+\]\(https?://[^\s<>"\x27)]+\)|https?://[^\s<>"\x27]+|\*\*[^*]+\*\*)~iu', (string) $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!is_array($parts)) {
+            return htmlspecialchars((string) $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+        $html = '';
+        foreach ($parts as $part) {
+            $label = $part;
+            $url = '';
+            if (preg_match('~^\[([^\]]+)\]\((https?://[^\s]+)\)$~iu', $part, $m)) {
+                $label = $m[1];
+                $url = $this->safeUrl($m[2]);
+            } elseif (preg_match('~^https?://~i', $part)) {
+                $url = $this->safeUrl($part);
+            }
+            if ($url !== '') {
+                $html .= '<a href="' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" target="_blank" rel="noopener noreferrer">'
+                    . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</a>';
+            } elseif (preg_match('~^\*\*(.+)\*\*$~su', $part, $m)) {
+                $html .= '<strong>' . htmlspecialchars($m[1], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</strong>';
+            } else {
+                $html .= htmlspecialchars($part, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+        return nl2br($html, false);
+    }
 
-        // 2) [label](url)
-        $safe = preg_replace_callback(
-            '#\[(.+?)\]\((https?://[^\s)]+)\)#i',
-            function ($m) {
-                $label = htmlspecialchars($m[1], ENT_QUOTES, 'UTF-8');
-                $href = htmlspecialchars($m[2], ENT_QUOTES, 'UTF-8');
-                return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer">' . $label . '</a>';
-            },
-            $safe
-        );
+    private function safeUrl($url)
+    {
+        $url = trim((string) $url);
+        return preg_match('~^https?://~i', $url) && !preg_match('/[\x00-\x20\x7f\\\\]/', $url)
+            && filter_var($url, FILTER_VALIDATE_URL) ? $url : '';
+    }
 
-        // 3) auto-link naked URLs
-        $safe = preg_replace_callback(
-            '#(?<!["\'])(https?://[^\s<]+)#i',
-            function ($m) {
-                $u = htmlspecialchars($m[1], ENT_QUOTES, 'UTF-8');
-                return '<a href="' . $u . '" target="_blank" rel="noopener noreferrer">' . $u . '</a>';
-            },
-            $safe
-        );
+    private function safeColor($color, $fallback)
+    {
+        return preg_match('/\A(?:#[0-9a-f]{3}|#[0-9a-f]{6}|transparent)\z/i', (string) $color) ? (string) $color : $fallback;
+    }
 
-        // 4) **bold**
-        $safe = preg_replace('#\*\*(.+?)\*\*#s', '<strong>$1</strong>', $safe);
-
-        // 5) newlines → <br>
-        $safe = nl2br($safe, false);
-
-        return $safe;
+    private function safeDate($date)
+    {
+        return preg_match('/\A(\d{4})-(\d{2})-(\d{2})\z/', (string) $date, $m)
+            && checkdate((int) $m[2], (int) $m[3], (int) $m[1]) ? (string) $date : '';
     }
 
     private function renderBar()
@@ -711,6 +732,8 @@ class Promobar extends Module
         // Period
         $start = (string) Configuration::get(self::CFG_START_DATE, null, null, $idShop);
         $end = (string) Configuration::get(self::CFG_END_DATE, null, null, $idShop);
+        $start = $this->safeDate($start);
+        $end = $this->safeDate($end);
         $today = new \DateTime('now');
 
         try {
@@ -736,7 +759,7 @@ class Promobar extends Module
         $messageHtml = $this->renderMiniMarkup($message);
 
         $dismissible = (int) Configuration::get(self::CFG_DISMISSIBLE, null, null, $idShop);
-        if (Tools::getValue('promobar_preview') != 1) {
+        if ($this->inputValue('promobar_preview') != 1) {
             if ($dismissible && isset($_COOKIE['promobar_dismissed']) && $_COOKIE['promobar_dismissed'] === '1') {
                 return '';
             }
@@ -763,27 +786,30 @@ class Promobar extends Module
         $ctaText = (string) Configuration::get(self::CFG_CTA_TEXT, $idLang, null, $idShop);
         $ctaUrl = (string) Configuration::get(self::CFG_CTA_URL, null, null, $idShop);
 
+        $fonts = $this->getFontWhitelist();
+        $font = (string) Configuration::get(self::CFG_FONT_FAMILY, null, null, $idShop);
+        $animation = (string) Configuration::get(self::CFG_ANIMATION, null, null, $idShop);
         $this->context->smarty->assign([
             'promobar_message' => $messageHtml,     // sanitized HTML string
             'promobar_message_plain' => $message,         // fallback text
 
-            'promobar_bg' => (string) Configuration::get(self::CFG_BG_COLOR, null, null, $idShop),
-            'promobar_fg' => (string) Configuration::get(self::CFG_TEXT_COLOR, null, null, $idShop),
+            'promobar_bg' => $this->safeColor(Configuration::get(self::CFG_BG_COLOR, null, null, $idShop), '#111111'),
+            'promobar_fg' => $this->safeColor(Configuration::get(self::CFG_TEXT_COLOR, null, null, $idShop), '#ffffff'),
             'promobar_dismissible' => $dismissible,
             'promobar_cookie' => 'promobar_dismissed',
             'promobar_cookie_days' => (int) Configuration::get(self::CFG_COOKIE_DAYS, null, null, $idShop),
-            'promobar_font' => (string) Configuration::get(self::CFG_FONT_FAMILY, null, null, $idShop),
-            'promobar_animation' => (string) Configuration::get(self::CFG_ANIMATION, null, null, $idShop),
+            'promobar_font' => isset($fonts[$font]) ? $fonts[$font] : $fonts['system-ui'],
+            'promobar_animation' => in_array($animation, ['none', 'scroll', 'pulse', 'blink'], true) ? $animation : 'none',
 
             'promobar_countdown' => (int) $countdownEnabled,
             'promobar_countdown_end' => $countdownEndIso,
 
             'promobar_cta_enabled' => $ctaEnabled,
             'promobar_cta_text' => trim($ctaText),
-            'promobar_cta_url' => $ctaUrl,
-            'promobar_cta_bg' => (string) Configuration::get(self::CFG_CTA_BG_COLOR, null, null, $idShop),
-            'promobar_cta_text_col' => (string) Configuration::get(self::CFG_CTA_TEXT_COLOR, null, null, $idShop),
-            'promobar_cta_border' => (string) Configuration::get(self::CFG_CTA_BORDER, null, null, $idShop),
+            'promobar_cta_url' => $this->safeUrl($ctaUrl),
+            'promobar_cta_bg' => $this->safeColor(Configuration::get(self::CFG_CTA_BG_COLOR, null, null, $idShop), 'transparent'),
+            'promobar_cta_text_col' => $this->safeColor(Configuration::get(self::CFG_CTA_TEXT_COLOR, null, null, $idShop), '#ffffff'),
+            'promobar_cta_border' => $this->safeColor(Configuration::get(self::CFG_CTA_BORDER, null, null, $idShop), '#ffffff'),
         ]);
 
         return $this->display(__FILE__, 'views/templates/hook/displayTop.tpl');
@@ -835,11 +861,15 @@ class Promobar extends Module
             Configuration::updateValue(self::BDC_CFG_INSTANCE_ID, $instanceId, false, null, $idShop);
         }
 
+        if ($instanceId === '') {
+            return;
+        }
+
         $baseUrl = '';
         $domain = '';
         try {
             $baseUrl = (string) $this->context->shop->getBaseURL(true);
-            $domain = (string) ($this->context->shop->domain ?? '');
+            $domain = isset($this->context->shop->domain) ? (string) $this->context->shop->domain : '';
         } catch (\Exception $e) {
             // ignore
         }
@@ -885,8 +915,14 @@ class Promobar extends Module
             }
         }
 
-        // Fallback
-        return Tools::passwdGen(32);
+        if (function_exists('openssl_random_pseudo_bytes')) {
+            $strong = false;
+            $bytes = openssl_random_pseudo_bytes(16, $strong);
+            if ($bytes !== false && $strong) {
+                return bin2hex($bytes);
+            }
+        }
+        return '';
     }
 
     private function bdcentralPostJson($url, array $payload)
@@ -904,6 +940,9 @@ class Promobar extends Module
             $ch = curl_init((string) $url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
             curl_setopt($ch, CURLOPT_HTTPHEADER, [
                 'Content-Type: application/json; charset=utf-8',
@@ -915,7 +954,9 @@ class Promobar extends Module
             curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
             $out = curl_exec($ch);
+            if (is_resource($ch)) {
             curl_close($ch);
+        }
 
             if (is_string($out) && $out !== '') {
                 $data = json_decode($out, true);
@@ -928,18 +969,66 @@ class Promobar extends Module
         $opts = [
             'http' => [
                 'method' => 'POST',
+                'follow_location' => 0,
+                'max_redirects' => 0,
                 'header' => "Content-Type: application/json; charset=utf-8\r\nAccept: application/json\r\n",
                 'content' => $json,
                 'timeout' => $timeout,
             ],
         ];
+        $opts['ssl'] = ['verify_peer' => true, 'verify_peer_name' => true, 'allow_self_signed' => false];
         $ctx = stream_context_create($opts);
 
-        $out = @Tools::file_get_contents((string) $url, false, $ctx);
+        $out = @file_get_contents((string) $url, false, $ctx, 0, 65536);
         if (is_string($out) && $out !== '') {
             $data = json_decode($out, true);
             return is_array($data) ? $data : null;
         }
         return null;
     }
+    /** Only scalar inputs are accepted unless an array is explicitly expected. */
+    private function inputValue($key, $default = '')
+    {
+        $value = Tools::getValue($key, $default);
+        if (is_array($default)) {
+            return is_array($value) ? array_filter($value, 'is_scalar') : $default;
+        }
+        return is_scalar($value) ? $value : $default;
+    }
+
+    private function canConfigure()
+    {
+        return isset($this->context->employee)
+            && Validate::isLoadedObject($this->context->employee)
+            && $this->context->employee->isLoggedBack()
+            && $this->getPermission('configure', $this->context->employee);
+    }
+
+    private function validConfigurationRequest()
+    {
+        $token = isset($_POST['bedom_form_token']) ? $_POST['bedom_form_token'] : null;
+        return isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST'
+            && $this->canConfigure() && is_string($token)
+            && hash_equals(Tools::getAdminTokenLite('AdminModules'), $token);
+    }
+
+    private function addFormToken($helper, array $forms)
+    {
+        $helper->fields_value['bedom_form_token'] = Tools::getAdminTokenLite('AdminModules');
+        $helper->tpl_vars['fields_value']['bedom_form_token'] = $helper->fields_value['bedom_form_token'];
+        foreach ($forms as &$form) {
+            $form['form']['input'][] = ['type' => 'hidden', 'name' => 'bedom_form_token'];
+        }
+        unset($form);
+        return $helper->generateForm($forms);
+    }
+
+    public function upgradeCompatibility()
+    {
+        return $this->registerHook('displayTop')
+            && $this->registerHook('displayAfterBodyOpeningTag')
+            && $this->registerHook('header')
+            && $this->registerHook('displayBackOfficeHeader');
+    }
+
 }
