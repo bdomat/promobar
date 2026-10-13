@@ -1,0 +1,83 @@
+name: Compatibility and security
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  php:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['5.6', '7.0', '7.1', '7.2', '7.3', '7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: PHP syntax
+        run: find . -name '*.php' -not -path './.git/*' -print0 | xargs -0 -n1 php -n -l
+      - name: Behavioral security regressions (no network)
+        run: php -n tests/regression.php
+  prestashop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - prestashop: '1.7.8.11'
+            php: '7.4'
+          - prestashop: '8.2.8'
+            php: '8.1'
+          - prestashop: '9.2.0'
+            php: '8.5'
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: integration-only
+          MYSQL_DATABASE: prestashop
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pintegration-only"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: module
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: PrestaShop/PrestaShop
+          ref: ${{ matrix.prestashop }}
+          path: shop
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl, gd, xml, dom, curl, zip, pdo_mysql, mysqli, simplexml, fileinfo
+          ini-values: memory_limit=1024M, date.timezone=UTC
+          tools: composer:2.2
+          coverage: none
+      - name: Install core dependencies
+        working-directory: shop
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress
+        env:
+          COMPOSER_PROCESS_TIMEOUT: 600
+      - name: Install disposable PrestaShop database
+        working-directory: shop
+        run: >-
+          php install-dev/index_cli.php --step=database --language=en --country=fr
+          --domain=localhost --db_server=127.0.0.1 --db_user=root
+          --db_password=integration-only --db_name=prestashop --db_create=0
+          --name=ModuleIntegration --email=integration@example.test
+          --password=LocalTestOnly2026!
+      - name: Copy module and run integration checks
+        env:
+          MODULE_NAME: promobar
+        run: |
+          mkdir -p "shop/modules/$MODULE_NAME"
+          rsync -a --exclude=.git --exclude=.github module/ "shop/modules/$MODULE_NAME/"
+          php "shop/modules/$MODULE_NAME/tests/integration.php" "$GITHUB_WORKSPACE/shop"
