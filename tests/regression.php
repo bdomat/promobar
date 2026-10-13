@@ -4,10 +4,11 @@ error_reporting(E_ALL);
 set_error_handler(function ($severity, $message, $file, $line) {
     throw new ErrorException($message, 0, $severity, $file, $line);
 });
+define('_COOKIE_KEY_', 'local-test-store-secret');
 define('_PS_VERSION_', getenv('PS_VERSION') ?: '9.2.0');
 define('PROMOBAR_BDCENTRAL_DISABLED', true);
 define('__PS_BASE_URI__', '/');
-class TestEmployee { public $id = 1; public $logged = true; public function isLoggedBack() { return $this->logged; } }
+class TestEmployee { public $id = 1; public $passwd = 'password-hash-test'; public $logged = true; public function isLoggedBack() { return $this->logged; } }
 class TestSmarty { public $values = []; public function assign($values) { $this->values = array_merge($this->values, $values); } public function fetch($path) { return $path; } }
 class TestController { public function getLanguages() { return Language::getLanguages(); } public function addJS($s) {} public function addCSS($s) {} }
 class TestLink { public $withToken; public function getAdminLink($controller, $withToken = true, $route = [], $params = []) { $this->withToken = $withToken; return 'https://shop.example/admin/index.php?controller='.$controller.'&id_order=12&token=SECRET&_token=SECRET2'; } }
@@ -61,13 +62,14 @@ $module = new Promobar();
 
 check($module->ps_versions_compliancy['max'] === '9.2.99', 'Compatibility must be bounded');
 $_SERVER['REQUEST_METHOD'] = 'POST';
-$_POST = ['bedom_form_token' => 'local-test-csrf'];
+$validToken = callPrivate($module, 'getFormToken');
+$_POST = ['bedom_form_token' => $validToken];
 check(callPrivate($module, 'validConfigurationRequest'), 'Valid administrator POST');
 $_POST['bedom_form_token'] = ['local-test-csrf'];
 check(!callPrivate($module, 'validConfigurationRequest'), 'Reject array token');
 $_POST['bedom_form_token'] = 'invalid';
 check(!callPrivate($module, 'validConfigurationRequest'), 'Reject invalid token');
-$_POST['bedom_form_token'] = 'local-test-csrf';
+$_POST['bedom_form_token'] = $validToken;
 $_SERVER['REQUEST_METHOD'] = 'GET';
 check(!callPrivate($module, 'validConfigurationRequest'), 'Reject GET mutation');
 $_SERVER['REQUEST_METHOD'] = 'POST';
@@ -81,8 +83,12 @@ $_POST['bad'] = ['nested' => []];
 check(callPrivate($module, 'inputValue', ['bad', 'fallback']) === 'fallback', 'Reject non-scalar field');
 $helper = new HelperForm();
 $form = callPrivate($module, 'addFormToken', [$helper, [['form' => ['input' => []]]]]);
-check($form['values']['bedom_form_token'] === 'local-test-csrf', 'CSRF field value');
+check($form['values']['bedom_form_token'] === $validToken, 'CSRF field value');
 check($form['forms'][0]['form']['input'][0]['type'] === 'hidden', 'CSRF field definition');
+check(callPrivate($module, 'getFormToken') === $validToken, 'Stable across separate form renders');
+$module->context->employee->passwd = 'new-password-hash';
+check(callPrivate($module, 'getFormToken') !== $validToken, 'Password change invalidates CSRF token');
+$module->context->employee->passwd = 'password-hash-test';
 $_POST = [];
 $_GET = [];
 

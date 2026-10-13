@@ -14,6 +14,10 @@ $context->employee = new IntegrationEmployee(1);
 $context->shop = new Shop(1);
 $context->language = new Language((int) Configuration::get('PS_LANG_DEFAULT'));
 Shop::setContext(Shop::CONTEXT_SHOP, 1);
+require_once rtrim($argv[1], '/') . '/app/AppKernel.php';
+$kernelClass = version_compare(_PS_VERSION_, '9.0.0', '>=') ? 'AdminKernel' : 'AppKernel';
+$kernel = new $kernelClass('prod', false);
+$kernel->boot();
 $context->controller = new AdminController();
 $module = Module::getInstanceByName('promobar');
 if (!$module || !$module->install()) { throw new RuntimeException('Module installation failed'); }

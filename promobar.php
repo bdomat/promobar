@@ -938,6 +938,9 @@ class Promobar extends Module
         // cURL first
         if (function_exists('curl_init')) {
             $ch = curl_init((string) $url);
+            if ($ch === false) {
+                return null;
+            }
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
@@ -950,13 +953,11 @@ class Promobar extends Module
             ]);
             curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
             curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
             $out = curl_exec($ch);
             if (is_resource($ch)) {
-            curl_close($ch);
-        }
+                curl_close($ch);
+            }
 
             if (is_string($out) && $out !== '') {
                 $data = json_decode($out, true);
@@ -1004,17 +1005,27 @@ class Promobar extends Module
             && $this->getPermission('configure', $this->context->employee);
     }
 
+    /** Independent of Symfony's per-request randomized URL tokens. */
+    private function getFormToken()
+    {
+        if (!defined('_COOKIE_KEY_') || !isset($this->context->employee) || !(int) $this->context->employee->id) {
+            return '';
+        }
+        return hash_hmac('sha256', $this->name . '|' . (int) $this->context->employee->id
+            . '|' . (string) $this->context->employee->passwd, _COOKIE_KEY_);
+    }
+
     private function validConfigurationRequest()
     {
         $token = isset($_POST['bedom_form_token']) ? $_POST['bedom_form_token'] : null;
         return isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST'
             && $this->canConfigure() && is_string($token)
-            && hash_equals(Tools::getAdminTokenLite('AdminModules'), $token);
+            && $this->getFormToken() !== '' && hash_equals($this->getFormToken(), $token);
     }
 
     private function addFormToken($helper, array $forms)
     {
-        $helper->fields_value['bedom_form_token'] = Tools::getAdminTokenLite('AdminModules');
+        $helper->fields_value['bedom_form_token'] = $this->getFormToken();
         $helper->tpl_vars['fields_value']['bedom_form_token'] = $helper->fields_value['bedom_form_token'];
         foreach ($forms as &$form) {
             $form['form']['input'][] = ['type' => 'hidden', 'name' => 'bedom_form_token'];
