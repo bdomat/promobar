@@ -7,6 +7,7 @@
 - Revalidation des URL, couleurs et polices lors du rendu, y compris pour les anciens réglages.
 - Syntaxe compatible avec les anciens PHP, fermeture cURL adaptée à PHP 8.5, HTTPS avec validation TLS et sans redirection.
 - Cookies SameSite=Lax et Secure sur HTTPS ; correctif du compteur expiré.
+- Enregistrement du hook canonique displayHeader (évite les doublons SQL sur PrestaShop 9.2).
 - Script de mise à jour non destructif et tests automatisés.
 
 Base : PromoBar 1.0.3, dépôt public bdomat/promobar, commit 14180b9. Les adaptations syntaxiques de la variante 1.0.3-ps1731 sont reprises sans conserver ce suffixe non standard.

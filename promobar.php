@@ -105,7 +105,7 @@ class Promobar extends Module
         // Hooks
         $ok = $this->registerHook('displayTop')
             && $this->registerHook('displayAfterBodyOpeningTag')
-            && $this->registerHook('header')
+            && $this->registerHook('displayHeader')
             && $this->registerHook('displayBackOfficeHeader');
 
         $this->maybeMigrateOldKeys($idShop);
@@ -616,6 +616,11 @@ class Promobar extends Module
     }
 
     /** Front: assets */
+    public function hookDisplayHeader($params)
+    {
+        return $this->hookHeader($params);
+    }
+
     public function hookHeader($params)
     {
         $controller = $this->context->controller;
@@ -1036,9 +1041,11 @@ class Promobar extends Module
 
     public function upgradeCompatibility()
     {
+        // Remove only the obsolete literal alias; register the canonical asset hook.
+        $this->unregisterHook('header');
         return $this->registerHook('displayTop')
             && $this->registerHook('displayAfterBodyOpeningTag')
-            && $this->registerHook('header')
+            && $this->registerHook('displayHeader')
             && $this->registerHook('displayBackOfficeHeader');
     }
 

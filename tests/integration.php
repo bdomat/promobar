@@ -24,10 +24,26 @@ if (!$module || !$module->install()) { throw new RuntimeException('Module instal
 Configuration::updateValue('BDPO_LAST_PING', time(), false, null, 1);
 $html = $module->getContent();
 if (strpos($html, 'bedom_form_token') === false) { throw new RuntimeException('Configuration form did not render'); }
+$method = new ReflectionMethod($module, 'getFormToken');
+if (PHP_VERSION_ID < 80100) { $method->setAccessible(true); }
+$_SERVER['REQUEST_METHOD'] = 'POST';
+$_POST = ['bedom_form_token' => $method->invoke($module), 'submitPromobar' => '1', 'PROMOBAR_BG_COLOR' => '#123456'];
+$response = $module->getContent();
+if (Configuration::get('PROMOBAR_BG_COLOR', null, null, 1) !== '#123456') {
+    throw new RuntimeException('Authenticated POST did not save configuration: ' . strip_tags($response));
+}
+$_POST['bedom_form_token'] = 'invalid';
+$_POST['PROMOBAR_BG_COLOR'] = '#abcdef';
+$module->getContent();
+if (Configuration::get('PROMOBAR_BG_COLOR', null, null, 1) !== '#123456') { throw new RuntimeException('CSRF rejection failed'); }
+$_POST = [];
+$_SERVER['REQUEST_METHOD'] = 'GET';
 $before = Configuration::get('PROMOBAR_BG_COLOR', null, null, 1);
 if (!$module->upgradeCompatibility()) { throw new RuntimeException('Upgrade failed'); }
 if (Configuration::get('PROMOBAR_BG_COLOR', null, null, 1) !== $before) { throw new RuntimeException('Upgrade changed settings'); }
+Configuration::updateValue('PROMOBAR_ENABLED', 1, false, null, 1);
+Configuration::updateValue('PROMOBAR_MESSAGE', [(int) $context->language->id => 'Integration banner'], false, null, 1);
 $html = $module->hookDisplayAfterBodyOpeningTag([]);
-if (strpos($html, 'id="promobar"') === false) { throw new RuntimeException('Front template did not render'); }
+if (strpos($html, 'id="promobar"') === false) { throw new RuntimeException('Front template did not render: ' . json_encode(['html' => $html, 'enabled' => Configuration::get('PROMOBAR_ENABLED'), 'language' => $context->language->id])); }
 if (!$module->uninstall()) { throw new RuntimeException('Uninstall failed'); }
 echo "PASS integration: " . _PS_VERSION_ . " / PHP " . PHP_VERSION . "\n";
