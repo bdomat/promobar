@@ -1,5 +1,6 @@
 """Validate a stable release tag and prepare the existing installable package."""
 import hashlib
+import io
 import os
 from pathlib import Path
 import re
@@ -38,7 +39,28 @@ if not section:
 output = root / "dist"
 output.mkdir(exist_ok=True)
 archive = output / f"{module}.zip"
-subprocess.run(["python3", str(root / "tools" / "build.py"), str(archive)], cwd=root, check=True)
+# Use the same git-archive packaging and export-ignore rules as tools/build.py.
+def archive_at(ref):
+    return subprocess.check_output(["git", "archive", "--format=zip", "--prefix=" + module + "/", ref], cwd=root)
+
+def payload(data):
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        if package.testzip() is not None:
+            raise SystemExit("ZIP CRC verification failed")
+        return {name: package.read(name) for name in package.namelist() if not name.endswith("/")}
+
+data = archive_at(head)
+source_sha = head
+existing_tag = subprocess.run(["git", "rev-parse", "--verify", "refs/tags/" + tag + "^{commit}"], cwd=root, capture_output=True, text=True)
+if existing_tag.returncode == 0:
+    source_sha = existing_tag.stdout.strip()
+    subprocess.run(["git", "merge-base", "--is-ancestor", source_sha, head], cwd=root, check=True)
+    tagged_data = archive_at(source_sha)
+    if payload(tagged_data) != payload(data):
+        raise SystemExit("Existing tag has different installable files; bump the module version")
+    # Preserve the exact original ZIP when only excluded CI/tooling changed.
+    data = tagged_data
+archive.write_bytes(data)
 with zipfile.ZipFile(archive) as package:
     if package.testzip() is not None:
         raise SystemExit("ZIP CRC verification failed")
@@ -49,8 +71,8 @@ with zipfile.ZipFile(archive) as package:
 digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 (output / "SHA256SUMS.txt").write_text(f"{digest}  {archive.name}\n")
 notes = f"## {module} {version}\n\n" + section.group(1).strip()
-notes += f"\n\nInstallation : télécharger `{archive.name}`, puis l'importer dans le gestionnaire de modules PrestaShop. Les archives Source code ne sont pas le paquet installable.\n\nCommit : `{head}`\n"
+notes += f"\n\nInstallation : télécharger `{archive.name}`, puis l'importer dans le gestionnaire de modules PrestaShop. Les archives Source code ne sont pas le paquet installable.\n\nCommit : `{source_sha}`\n"
 (output / "RELEASE_NOTES.md").write_text(notes)
 if os.environ.get("GITHUB_OUTPUT"):
     with open(os.environ["GITHUB_OUTPUT"], "a") as output_file:
-        output_file.write(f"tag={tag}\nsha={head}\n")
+        output_file.write(f"tag={tag}\nsha={source_sha}\nmain_sha={head}\n")

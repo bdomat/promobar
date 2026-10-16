@@ -7,7 +7,7 @@ Une fusion dans `main` lance les tests et publie automatiquement la version stab
 3. Le paquet est construit avec `tools/build.py` et les exclusions de `.gitattributes`. Le job final crée le tag sans jamais déplacer un tag existant et crée une release brouillon avec le ZIP installable au nom stable du module et son SHA-256.
 4. Les tailles et empreintes SHA-256 des assets GitHub sont vérifiées avant de publier cette release comme Latest. Le SHA du tag et de `main` est contrôlé de nouveau immédiatement avant publication.
 
-Les publications sont sérialisées. Une release stable déjà publiée est laissée intacte ; il faut augmenter la version pour publier de nouveaux fichiers. Un brouillon existant ou un tag incohérent provoque un arrêt pour revue plutôt qu'un écrasement. En cas d'échec, inspecter le workflow et le brouillon avant de relancer.
+Les publications sont sérialisées. Une release stable déjà publiée est laissée intacte ; il faut augmenter la version pour publier de nouveaux fichiers. Un brouillon complet produit par ce workflow peut reprendre après vérification de ses assets et du commit dans ses notes. Un tag divergent ou des assets incomplets provoquent un arrêt plutôt qu'un écrasement. Si seuls les fichiers exclus du paquet (CI/outillage) ont changé, le ZIP du tag original est reconstruit à l'identique après comparaison de tous les fichiers installables avec main. En cas d'échec, inspecter le workflow et le brouillon avant de relancer.
 
 Le jeton éphémère natif `GITHUB_TOKEN` est en lecture pour les tests et la construction. Seul le job final de publication reçoit `contents: write`, sans checkout ni exécution d'un script provenant du dépôt. Aucun PAT ni secret supplémentaire n'est nécessaire.
 

@@ -20,6 +20,7 @@ jobs:
     outputs:
       tag: ${{ steps.package.outputs.tag }}
       sha: ${{ steps.package.outputs.sha }}
+      main_sha: ${{ steps.package.outputs.main_sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,43 +54,46 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.package.outputs.tag }}
           SOURCE_SHA: ${{ needs.package.outputs.sha }}
+          MAIN_SHA: ${{ needs.package.outputs.main_sha }}
           MODULE_NAME: promobar
         shell: bash
         run: |
           set -euo pipefail
           sha256sum --check SHA256SUMS.txt
-          if gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > existing-release.json; then
+          find_release() {
+            gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > releases.json
             python3 - <<'PYTHON'
-          import json, os, re
-          release = json.load(open('existing-release.json'))
-          if release['draft'] or release['prerelease']:
-              raise SystemExit('Existing draft or prerelease requires review; nothing overwritten')
-          assets = {item['name']: item for item in release['assets']}
-          for name in [os.environ['MODULE_NAME'] + '.zip', 'SHA256SUMS.txt']:
-              asset = assets.get(name)
-              if not asset or asset['state'] != 'uploaded' or asset['size'] <= 0 or not re.fullmatch(r'sha256:[0-9a-f]{64}', asset.get('digest') or ''):
-                  raise SystemExit('Existing release assets are incomplete; nothing overwritten')
-          print('Complete stable release already exists; nothing changed')
+          import json, os
+          from pathlib import Path
+          releases = [release for page in json.load(open('releases.json')) for release in page if release['tag_name'] == os.environ['RELEASE_TAG']]
+          if len(releases) > 1:
+              raise SystemExit('Ambiguous release tag; nothing changed')
+          Path('release-id.txt').write_text(str(releases[0]['id']) if releases else '')
           PYTHON
-            gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha > /dev/null
-            exit 0
+          }
+          find_release
+          RELEASE_ID=$(cat release-id.txt)
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$MAIN_SHA"
+          if [ -z "$RELEASE_ID" ]; then
+            if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+              test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
+            else
+              gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA" > /dev/null
+            fi
+            gh release create "$RELEASE_TAG" promobar.zip SHA256SUMS.txt \
+              --verify-tag --draft --title "PromoBar $RELEASE_TAG" \
+              --notes-file RELEASE_NOTES.md
+            find_release
+            RELEASE_ID=$(cat release-id.txt)
+            test -n "$RELEASE_ID"
           fi
-          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
-          if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
-            test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
-          else
-            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA" > /dev/null
-          fi
-          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
-          gh release create "$RELEASE_TAG" promobar.zip SHA256SUMS.txt \
-            --verify-tag --draft --title "PromoBar $RELEASE_TAG" \
-            --notes-file RELEASE_NOTES.md
-          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > uploaded-release.json
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > uploaded-release.json
           python3 - <<'PYTHON'
           import hashlib, json, os
           from pathlib import Path
           release = json.load(open('uploaded-release.json'))
-          assert release['draft'] and not release['prerelease']
+          assert release['tag_name'] == os.environ['RELEASE_TAG'] and not release['prerelease']
+          assert 'Commit : `' + os.environ['SOURCE_SHA'] + '`' in release['body']
           assets = {item['name']: item for item in release['assets']}
           expected = [os.environ['MODULE_NAME'] + '.zip', 'SHA256SUMS.txt']
           assert set(assets) == set(expected)
@@ -98,8 +102,13 @@ jobs:
               data = Path(name).read_bytes()
               assert asset['state'] == 'uploaded' and asset['size'] == len(data)
               assert asset.get('digest') == 'sha256:' + hashlib.sha256(data).hexdigest()
+          Path('was-draft.txt').write_text('true' if release['draft'] else 'false')
           PYTHON
-          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_SHA"
           test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          if [ "$(cat was-draft.txt)" = false ]; then
+            echo 'Complete stable release already exists; nothing changed'
+            exit 0
+          fi
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$MAIN_SHA"
+          gh api --method PATCH "repos/$GH_REPO/releases/$RELEASE_ID" -F draft=false -F prerelease=false -f make_latest=true > /dev/null
           test "$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)" = "$RELEASE_TAG"
