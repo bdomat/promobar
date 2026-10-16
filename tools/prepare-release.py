@@ -47,7 +47,7 @@ def payload(data):
     with zipfile.ZipFile(io.BytesIO(data)) as package:
         if package.testzip() is not None:
             raise SystemExit("ZIP CRC verification failed")
-        return {name: package.read(name) for name in package.namelist() if not name.endswith("/")}
+        return {item.filename: (item.external_attr, package.read(item.filename)) for item in package.infolist()}
 
 data = archive_at(head)
 source_sha = head
