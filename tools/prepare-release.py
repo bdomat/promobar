@@ -5,22 +5,32 @@ from pathlib import Path
 import re
 import subprocess
 import zipfile
+import xml.etree.ElementTree as ET
 
 root = Path(__file__).resolve().parents[1]
 module = root.name
-tag = os.environ["RELEASE_TAG"]
-if not re.fullmatch(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", tag):
-    raise SystemExit("Only stable vMAJOR.MINOR.PATCH tags can be released")
-version = tag[1:]
+release_ref = os.environ["RELEASE_REF"]
 source = subprocess.check_output(["git", "show", f"HEAD:{module}.php"], cwd=root).decode()
 match = re.search(r"\$this->version = '([^']+)'", source)
-if not match or match.group(1) != version:
-    raise SystemExit("Tag does not match the module version")
+if not match or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", match.group(1)):
+    raise SystemExit("Only stable MAJOR.MINOR.PATCH module versions can be released")
+version = match.group(1)
+tag = "v" + version
+for manifest in sorted(root.glob("config*.xml")):
+    committed_xml = subprocess.check_output(["git", "show", "HEAD:" + manifest.name], cwd=root)
+    metadata = ET.fromstring(committed_xml)
+    if metadata.findtext("name") != module or metadata.findtext("version") != version:
+        raise SystemExit("Manifest name or version differs: " + manifest.name)
+if release_ref not in ("refs/heads/main", "refs/tags/" + tag):
+    raise SystemExit("Release ref does not match main or the stable module version")
 head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip()
-tag_head = subprocess.check_output(["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], cwd=root).decode().strip()
-if head != tag_head:
-    raise SystemExit("Checkout is not the tagged commit")
-subprocess.run(["git", "merge-base", "--is-ancestor", "HEAD", "origin/main"], cwd=root, check=True)
+main_head = subprocess.check_output(["git", "rev-parse", "origin/main"], cwd=root).decode().strip()
+if head != main_head:
+    raise SystemExit("Only the exact main commit can be published")
+if release_ref.startswith("refs/tags/"):
+    tag_head = subprocess.check_output(["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], cwd=root).decode().strip()
+    if head != tag_head:
+        raise SystemExit("Checkout is not the tagged commit")
 changelog = (root / "CHANGELOG.md").read_text()
 section = re.search(r"^## " + re.escape(version) + r"(?:[^\n]*)\n(.*?)(?=^## |\Z)", changelog, re.M | re.S)
 if not section:
@@ -41,3 +51,6 @@ digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 notes = f"## {module} {version}\n\n" + section.group(1).strip()
 notes += f"\n\nInstallation : télécharger `{archive.name}`, puis l'importer dans le gestionnaire de modules PrestaShop. Les archives Source code ne sont pas le paquet installable.\n\nCommit : `{head}`\n"
 (output / "RELEASE_NOTES.md").write_text(notes)
+if os.environ.get("GITHUB_OUTPUT"):
+    with open(os.environ["GITHUB_OUTPUT"], "a") as output_file:
+        output_file.write(f"tag={tag}\nsha={head}\n")
